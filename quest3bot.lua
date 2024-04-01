@@ -28,29 +28,59 @@ function inRange(x1, y1, x2, y2, range)
     return math.abs(x1 - x2) <= range and math.abs(y1 - y2) <= range
 end
 
+local function nearestEnemy(x, y)
+    local minDistance = math.huge
+    local nearest = nil
+
+    for target, state in pairs(LatestGameState.Players) do
+        local distance = math.sqrt((state.x - x)^2 + (state.y - y)^2)
+        if target ~= ao.id and distance < minDistance then
+            minDistance = distance
+            nearest = state
+        end
+    end
+    print(colors.red .. "nearest target: (" .. nearest.x .. "," .. nearest.y .. ")" .. colors.reset)
+
+    return nearest
+end
+
+
+function getDirection(currentPoint, targetPoint)
+    local direction = {}
+
+    if targetPoint.y > currentPoint.y then
+        table.insert(direction, "Down")
+    elseif targetPoint.y < currentPoint.y then
+        table.insert(direction, "Up")
+    end
+
+    if targetPoint.x > currentPoint.x then
+        table.insert(direction, "Right")
+    elseif targetPoint.x < currentPoint.x then
+        table.insert(direction, "Left")
+    end
+
+    return table.concat(direction)
+end
+
 -- Decides the next action based on player proximity and energy.
--- If any player is within range, it initiates an attack; otherwise, moves randomly.
+-- If any player is within range, it initiates an attack; otherwise, moves to nearest player.
 function decideNextAction()
     local player = LatestGameState.Players[ao.id]
     local targetInRange = false
 
-    for target, state in pairs(LatestGameState.Players) do
-        if target ~= ao.id and inRange(player.x, player.y, state.x, state.y, 1) then
+        local nearest = nearestEnemy(player.x, player.y)
+        if inRange(player.x, player.y, nearest.x, nearest.y, 1) then
             targetInRange = true
-            break
         end
-    end
 
     if player.energy > 5 and targetInRange then
         print(colors.red .. "Player in range. Attacking." .. colors.reset)
         ao.send({ Target = Game, Action = "PlayerAttack", Player = ao.id, AttackEnergy = tostring(player.energy) })
     else
-        local direction = "Right"
-        if player.x >= Width then
-            direction = "DownRight"
-        end
+        local direction = getDirection(player, nearest)
         ao.send({ Target = Game, Action = "PlayerMove", Player = ao.id, Direction =  direction})
-        print(colors.red .. "No player in range or insufficient energy. Moving " .. direction .. colors.reset)
+        print(colors.red .. "(" .. player.x .. "," .. player.y .. ") No player in range or insufficient energy. Moving " .. direction .. colors.reset)
     end
     -- InAction = false -- InAction logic added
 end
@@ -109,19 +139,32 @@ Handlers.add(
     end
 )
 
+local function isInGame()
+    for target, state in pairs(LatestGameState.Players) do
+        if target == ao.id then
+            return true
+        end
+    end
+    return false
+end
 -- Handler to decide the next best action.
 Handlers.add(
     "decideNextAction",
     Handlers.utils.hasMatchingTag("Action", "UpdatedGameState"),
     function()
+        print("UpdatedGameState")
         if LatestGameState.GameMode ~= "Playing" then
             -- InAction = false -- InAction logic added
             print("Game is waiting")
             return
         end
-        print("Deciding next action.")
-        decideNextAction()
-        ao.send({ Target = ao.id, Action = "Tick" })
+        if isInGame() then
+            print("Deciding next action.")
+            decideNextAction()
+            ao.send({ Target = ao.id, Action = "Tick" })
+        else
+            print("Is not in game.")
+        end
     end
 )
 
